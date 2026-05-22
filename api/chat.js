@@ -87,7 +87,7 @@ ${context || 'No relevant excerpts found — answer from general coffee expertis
 
     // ── Step 5: Generate answer with Gemini ───────────────────────────────
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
