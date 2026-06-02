@@ -1,3 +1,8 @@
+// Gemini 2.5 models support disabling thinking via:
+//   generationConfig: { thinkingConfig: { thinkingBudget: 0 } }
+// Setting thinkingBudget: 0 eliminates thinking tokens, reducing latency significantly.
+// Recommended to add once confirmed against the deployed model version.
+
 export default async function handler(req, res) {
   // CORS — allow requests from any origin (your app uses fetch directly)
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -24,11 +29,14 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Abort 5 s before Vercel's hard 30 s maxDuration so we can return clean JSON
+    // instead of letting Vercel serve an HTML 504 page to the app.
     const geminiRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(25000),
         body: JSON.stringify({
           contents: [{
             parts: [
@@ -43,9 +51,21 @@ export default async function handler(req, res) {
     const data = await geminiRes.json();
     if (data.error) return res.status(502).json({ error: data.error.message });
 
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    // Gemini 2.5 models return thinking tokens as parts with { thought: true }.
+    // The actual model response is in the last non-thought text part.
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[analyze] Gemini parts shape:', parts.map(p => ({ thought: !!p.thought, chars: p.text?.length ?? 0 })));
+    }
+    const responsePart = parts.filter(p => !p.thought && typeof p.text === 'string').pop();
+    const text = responsePart?.text ?? '';
+
+    if (!text) return res.status(502).json({ error: 'Gemini returned an empty response. Please try again.' });
     return res.status(200).json({ text });
   } catch (err) {
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      return res.status(504).json({ error: 'Analysis timed out — Gemini took too long. Please try again.' });
+    }
     return res.status(502).json({ error: err.message || 'Failed to reach Gemini' });
   }
 }
